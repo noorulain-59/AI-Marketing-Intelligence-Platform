@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard · AI Marketing Intelligence Platform</title>
+<link rel="stylesheet" href="/css/style.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <div class="sidebar" id="sidebarMount"></div>
+
+    <div class="main">
+      <div class="page-header">
+        <div>
+          <h1>Dashboard</h1>
+          <p>Live overview across all your campaigns.</p>
+        </div>
+      </div>
+
+      <div class="grid grid-4" id="kpiGrid" style="margin-bottom:20px;"></div>
+
+      <div class="grid grid-2" style="margin-bottom:20px;">
+        <div class="card">
+          <h3 style="margin-top:0;">Spend vs Revenue by Channel</h3>
+          <canvas id="channelChart" height="220"></canvas>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0;">Best vs Worst Campaign (ROI)</h3>
+          <div id="bestWorst"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/shell.js"></script>
+  <script>
+    renderShell('dashboard');
+
+    function kpiCard(label, value, sub, subClass) {
+      return `<div class="card">
+        <div class="kpi-label">${label}</div>
+        <div class="kpi-value">${value}</div>
+        ${sub ? `<div class="kpi-sub ${subClass || ''}">${sub}</div>` : ''}
+      </div>`;
+    }
+
+    async function load() {
+      try {
+        const d = await api('/dashboard');
+        const kpiGrid = document.getElementById('kpiGrid');
+
+        kpiGrid.innerHTML = [
+          kpiCard('Total Spend', money(d.totals.spend), `${d.campaignCount} campaign(s)`),
+          kpiCard('Total Revenue', money(d.totals.revenue)),
+          kpiCard('Overall ROI', pct(d.kpis.roi), d.kpis.roi >= 0 ? 'Profitable' : 'Losing money', d.kpis.roi >= 0 ? 'good' : 'bad'),
+          kpiCard('Conversion Rate', pct(d.kpis.conversionRate), `CTR ${pct(d.kpis.ctr)} · CPC ${money(d.kpis.cpc)} · CPA ${money(d.kpis.cpa)}`),
+        ].join('');
+
+        const bw = document.getElementById('bestWorst');
+        if (!d.bestCampaign) {
+          bw.innerHTML = `<div class="empty-state">No campaigns yet. <a href="/campaigns.html">Add your first campaign</a>.</div>`;
+        } else {
+          bw.innerHTML = `
+            <div style="margin-bottom:14px;">
+              <div class="kpi-label">🏆 Best Performer</div>
+              <div style="font-size:16px;font-weight:600;margin-top:4px;">${d.bestCampaign.name}</div>
+              <div class="kpi-sub good">${pct(d.bestCampaign.roi)} ROI · ${d.bestCampaign.channel}</div>
+            </div>
+            <div>
+              <div class="kpi-label">⚠️ Needs Attention</div>
+              <div style="font-size:16px;font-weight:600;margin-top:4px;">${d.worstCampaign.name}</div>
+              <div class="kpi-sub bad">${pct(d.worstCampaign.roi)} ROI · ${d.worstCampaign.channel}</div>
+            </div>
+          `;
+        }
+
+        const ctx = document.getElementById('channelChart');
+        if (d.byChannel.length) {
+          new Chart(ctx, {
+            type: 'bar',
+            data: {
+              labels: d.byChannel.map(c => c.channel),
+              datasets: [
+                { label: 'Spend', data: d.byChannel.map(c => c.spend), backgroundColor: '#6c8cff' },
+                { label: 'Revenue', data: d.byChannel.map(c => c.revenue), backgroundColor: '#3ddc97' },
+              ],
+            },
+            options: {
+              responsive: true,
+              plugins: { legend: { labels: { color: '#e7ebfa' } } },
+              scales: {
+                x: { ticks: { color: '#a3adcc' }, grid: { color: '#2a3352' } },
+                y: { ticks: { color: '#a3adcc' }, grid: { color: '#2a3352' } },
+              },
+            },
+          });
+        }
+      } catch (err) {
+        toast(err.message, true);
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Campaigns · AI Marketing Intelligence Platform</title>
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <div class="sidebar" id="sidebarMount"></div>
+
+    <div class="main">
+      <div class="page-header">
+        <div>
+          <h1>Campaigns</h1>
+          <p>Create, edit, and track every campaign's performance.</p>
+        </div>
+        <button class="btn" id="newCampaignBtn">+ New Campaign</button>
+      </div>
+
+      <div class="card" style="padding:0;overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th><th>Channel</th><th>Status</th><th>Spend</th><th>Revenue</th>
+              <th>ROI</th><th>CTR</th><th>Conv. Rate</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="campaignRows"></tbody>
+        </table>
+        <div id="emptyState" class="empty-state" style="display:none;">No campaigns yet — create your first one above.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create/Edit modal -->
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal">
+      <h2 id="modalTitle">New Campaign</h2>
+      <form id="campaignForm">
+        <input type="hidden" id="campaignId" />
+        <div class="grid grid-2">
+          <div class="field"><label>Campaign Name</label><input type="text" id="name" required /></div>
+          <div class="field"><label>Channel</label>
+            <select id="channel">
+              <option>Facebook</option><option>Instagram</option><option>Google Ads</option>
+              <option>TikTok</option><option>Email</option><option>LinkedIn</option><option>Other</option>
+            </select>
+          </div>
+          <div class="field"><label>Objective</label>
+            <select id="objective">
+              <option>Awareness</option><option>Traffic</option><option>Leads</option><option>Sales</option><option>Retention</option>
+            </select>
+          </div>
+          <div class="field"><label>Status</label>
+            <select id="status"><option>Draft</option><option>Active</option><option>Paused</option><option>Completed</option></select>
+          </div>
+          <div class="field"><label>Start Date</label><input type="date" id="startDate" required /></div>
+          <div class="field"><label>End Date</label><input type="date" id="endDate" /></div>
+          <div class="field"><label>Budget ($)</label><input type="number" id="budget" min="0" step="0.01" required /></div>
+          <div class="field"><label>Amount Spent ($)</label><input type="number" id="amountSpent" min="0" step="0.01" required /></div>
+          <div class="field"><label>Revenue ($)</label><input type="number" id="revenue" min="0" step="0.01" required /></div>
+          <div class="field"><label>Impressions</label><input type="number" id="impressions" min="0" required /></div>
+          <div class="field"><label>Clicks</label><input type="number" id="clicks" min="0" required /></div>
+          <div class="field"><label>Conversions</label><input type="number" id="conversions" min="0" required /></div>
+        </div>
+        <div class="field"><label>Target Audience</label><input type="text" id="targetAudience" placeholder="e.g. Women 25-40, urban" /></div>
+        <div class="field"><label>Notes</label><textarea id="notes" rows="2"></textarea></div>
+
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px;">
+          <button type="button" class="btn btn-ghost" id="cancelBtn">Cancel</button>
+          <button type="submit" class="btn">Save Campaign</button>
+        </div>
+        <div class="error-msg" id="formError"></div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/shell.js"></script>
+  <script>
+    renderShell('campaigns');
+
+    const modal = document.getElementById('modalBackdrop');
+    const form = document.getElementById('campaignForm');
+
+    function openModal(campaign) {
+      document.getElementById('formError').textContent = '';
+      form.reset();
+      document.getElementById('modalTitle').textContent = campaign ? 'Edit Campaign' : 'New Campaign';
+      document.getElementById('campaignId').value = campaign ? campaign._id : '';
+
+      if (campaign) {
+        ['name','channel','objective','status','budget','amountSpent','revenue','impressions','clicks','conversions','targetAudience','notes']
+          .forEach(k => { const el = document.getElementById(k); if (el) el.value = campaign[k] ?? ''; });
+        document.getElementById('startDate').value = campaign.startDate ? campaign.startDate.substring(0,10) : '';
+        document.getElementById('endDate').value = campaign.endDate ? campaign.endDate.substring(0,10) : '';
+      }
+      modal.classList.add('open');
+    }
+    function closeModal() { modal.classList.remove('open'); }
+
+    document.getElementById('newCampaignBtn').addEventListener('click', () => openModal(null));
+    document.getElementById('cancelBtn').addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    function statusBadge(status) {
+      const cls = { Active: 'badge-active', Paused: 'badge-paused', Draft: 'badge-draft', Completed: 'badge-completed' }[status] || 'badge-draft';
+      return `<span class="badge ${cls}">${status}</span>`;
+    }
+
+    let campaignsCache = [];
+
+    async function loadCampaigns() {
+      try {
+        campaignsCache = await api('/campaigns');
+        const rows = document.getElementById('campaignRows');
+        const empty = document.getElementById('emptyState');
+
+        if (!campaignsCache.length) {
+          rows.innerHTML = '';
+          empty.style.display = 'block';
+          return;
+        }
+        empty.style.display = 'none';
+
+        rows.innerHTML = campaignsCache.map(c => `
+          <tr>
+            <td>${c.name}</td>
+            <td>${c.channel}</td>
+            <td>${statusBadge(c.status)}</td>
+            <td>${money(c.amountSpent)}</td>
+            <td>${money(c.revenue)}</td>
+            <td style="color:${c.metrics.roi >= 0 ? 'var(--good)' : 'var(--bad)'}">${pct(c.metrics.roi)}</td>
+            <td>${pct(c.metrics.ctr)}</td>
+            <td>${pct(c.metrics.conversionRate)}</td>
+            <td>
+              <div class="row-actions">
+                <button class="icon-btn" onclick="editCampaign('${c._id}')">Edit</button>
+                <button class="icon-btn" onclick="viewAI('${c._id}')">AI</button>
+                <button class="icon-btn" onclick="removeCampaign('${c._id}')">Delete</button>
+              </div>
+            </td>
+          </tr>
+        `).join('');
+      } catch (err) {
+        toast(err.message, true);
+      }
+    }
+
+    function editCampaign(id) {
+      const c = campaignsCache.find(x => x._id === id);
+      if (c) openModal(c);
+    }
+
+    function viewAI(id) {
+      window.location.href = `/ai-insights.html?campaignId=${id}`;
+    }
+
+    async function removeCampaign(id) {
+      if (!confirm('Delete this campaign? This cannot be undone.')) return;
+      try {
+        await api(`/campaigns/${id}`, { method: 'DELETE' });
+        toast('Campaign deleted');
+        loadCampaigns();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('campaignId').value;
+      const payload = {
+        name: document.getElementById('name').value.trim(),
+        channel: document.getElementById('channel').value,
+        objective: document.getElementById('objective').value,
+        status: document.getElementById('status').value,
+        startDate: document.getElementById('startDate').value,
+        endDate: document.getElementById('endDate').value || undefined,
+        budget: Number(document.getElementById('budget').value),
+        amountSpent: Number(document.getElementById('amountSpent').value),
+        revenue: Number(document.getElementById('revenue').value),
+        impressions: Number(document.getElementById('impressions').value),
+        clicks: Number(document.getElementById('clicks').value),
+        conversions: Number(document.getElementById('conversions').value),
+        targetAudience: document.getElementById('targetAudience').value.trim(),
+        notes: document.getElementById('notes').value.trim(),
+      };
+
+      try {
+        if (id) {
+          await api(`/campaigns/${id}`, { method: 'PUT', body: payload });
+          toast('Campaign updated');
+        } else {
+          await api('/campaigns', { method: 'POST', body: payload });
+          toast('Campaign created');
+        }
+        closeModal();
+        loadCampaigns();
+      } catch (err) {
+        document.getElementById('formError').textContent = err.message;
+      }
+    });
+
+    loadCampaigns();
+  </script>
+</body>
+</html>

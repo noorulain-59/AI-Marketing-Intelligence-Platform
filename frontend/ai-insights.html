@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Insights · AI Marketing Intelligence Platform</title>
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <div class="sidebar" id="sidebarMount"></div>
+
+    <div class="main">
+      <div class="page-header">
+        <div>
+          <h1>AI Insights</h1>
+          <p>Performance analysis, segmentation, recommendations, ad copy, and forecasting — all computed from your campaign data.</p>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active" data-tab="performance">Performance Analysis</div>
+        <div class="tab" data-tab="segmentation">Segmentation</div>
+        <div class="tab" data-tab="campaign">Per-Campaign (Recommendations · Ad Copy · Forecast)</div>
+      </div>
+
+      <div id="tab-performance"></div>
+      <div id="tab-segmentation" style="display:none;"></div>
+      <div id="tab-campaign" style="display:none;"></div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/shell.js"></script>
+  <script>
+    renderShell('ai');
+
+    const tabs = document.querySelectorAll('.tab');
+    tabs.forEach(t => t.addEventListener('click', () => {
+      tabs.forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      ['performance','segmentation','campaign'].forEach(name => {
+        document.getElementById(`tab-${name}`).style.display = name === t.dataset.tab ? 'block' : 'none';
+      });
+    }));
+
+    function verdictClass(v) {
+      if (v.includes('Star')) return 'verdict-star';
+      if (v.includes('Underperforming') || v.includes('needs optimization')) return 'verdict-bad';
+      return 'verdict-avg';
+    }
+
+    async function loadPerformance() {
+      const el = document.getElementById('tab-performance');
+      el.innerHTML = '<div class="empty-state">Analyzing...</div>';
+      try {
+        const data = await api('/ai/performance');
+        if (!data.ranked.length) {
+          el.innerHTML = '<div class="empty-state">No campaigns to analyze yet. <a href="/campaigns.html">Add one first</a>.</div>';
+          return;
+        }
+        el.innerHTML = `
+          <div class="card ai-card" style="margin-bottom:16px;">${data.summary}</div>
+          <div class="card" style="padding:0;overflow-x:auto;">
+            <table>
+              <thead><tr><th>Campaign</th><th>Channel</th><th>ROI</th><th>Z-Score</th><th>AI Verdict</th></tr></thead>
+              <tbody>
+                ${data.ranked.map(r => `
+                  <tr>
+                    <td>${r.name}</td><td>${r.channel}</td><td>${pct(r.roi)}</td><td>${r.zScore}</td>
+                    <td class="${verdictClass(r.verdict)}">${r.verdict}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      } catch (err) { el.innerHTML = `<div class="empty-state">${err.message}</div>`; }
+    }
+
+    async function loadSegmentation() {
+      const el = document.getElementById('tab-segmentation');
+      el.innerHTML = '<div class="empty-state">Segmenting...</div>';
+      try {
+        const data = await api('/ai/segmentation');
+        if (!data.segments.length) {
+          el.innerHTML = '<div class="empty-state">No campaigns to segment yet.</div>';
+          return;
+        }
+        el.innerHTML = `
+          <div class="card" style="padding:0;overflow-x:auto;">
+            <table>
+              <thead><tr><th>Campaign</th><th>Channel</th><th>Segment</th><th>Frequency</th><th>Monetary</th><th>Spend</th></tr></thead>
+              <tbody>
+                ${data.segments.map(s => `
+                  <tr>
+                    <td>${s.name}</td><td>${s.channel}</td>
+                    <td><span class="segment-pill">${s.segment}</span></td>
+                    <td>${s.scores.frequency}/3</td><td>${s.scores.monetary}/3</td><td>${s.scores.spend}/3</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      } catch (err) { el.innerHTML = `<div class="empty-state">${err.message}</div>`; }
+    }
+
+    async function loadCampaignTools() {
+      const el = document.getElementById('tab-campaign');
+      try {
+        const campaigns = await api('/campaigns');
+        if (!campaigns.length) {
+          el.innerHTML = '<div class="empty-state">No campaigns yet.</div>';
+          return;
+        }
+
+        const params = new URLSearchParams(window.location.search);
+        const preselect = params.get('campaignId') || campaigns[0]._id;
+
+        el.innerHTML = `
+          <div class="field" style="max-width:360px;margin-bottom:18px;">
+            <label>Select a campaign</label>
+            <select id="campaignSelect">
+              ${campaigns.map(c => `<option value="${c._id}" ${c._id === preselect ? 'selected' : ''}>${c.name}</option>`).join('')}
+            </select>
+          </div>
+          <div class="grid grid-2">
+            <div class="card ai-card">
+              <h3 style="margin-top:0;">Recommendations</h3>
+              <ul class="rec-list" id="recList"></ul>
+            </div>
+            <div class="card ai-card">
+              <h3 style="margin-top:0;">Forecast to End Date</h3>
+              <div id="forecastBox"></div>
+            </div>
+          </div>
+          <div class="card ai-card" style="margin-top:16px;">
+            <h3 style="margin-top:0;">AI Ad Copy Suggestions</h3>
+            <div id="adCopyBox"></div>
+          </div>
+        `;
+
+        const select = document.getElementById('campaignSelect');
+        select.addEventListener('change', () => loadForCampaign(select.value));
+        loadForCampaign(preselect);
+      } catch (err) { el.innerHTML = `<div class="empty-state">${err.message}</div>`; }
+    }
+
+    async function loadForCampaign(id) {
+      try {
+        const [rec, copy, forecast] = await Promise.all([
+          api(`/ai/recommendations/${id}`),
+          api(`/ai/ad-copy/${id}`),
+          api(`/ai/forecast/${id}`),
+        ]);
+
+        document.getElementById('recList').innerHTML = rec.recommendations.map(r => `<li>${r}</li>`).join('');
+
+        document.getElementById('adCopyBox').innerHTML = copy.suggestions.map(s => `
+          <div class="copy-suggestion">
+            <h4>${s.headline}</h4>
+            <p>${s.body}</p>
+            <button class="icon-btn" disabled>${s.cta}</button>
+          </div>
+        `).join('');
+
+        const f = forecast;
+        document.getElementById('forecastBox').innerHTML = `
+          <div class="kpi-label">Projected Revenue</div>
+          <div class="kpi-value">${money(f.projectedRevenue)}</div>
+          <div class="kpi-label" style="margin-top:14px;">Projected ROI</div>
+          <div class="kpi-value" style="color:${(f.projectedRoi||0) >= 0 ? 'var(--good)' : 'var(--bad)'}">${pct(f.projectedRoi || 0)}</div>
+          <div class="kpi-sub" style="margin-top:10px;">${f.note}</div>
+        `;
+      } catch (err) {
+        toast(err.message, true);
+      }
+    }
+
+    loadPerformance();
+    loadSegmentation();
+    loadCampaignTools();
+  </script>
+</body>
+</html>

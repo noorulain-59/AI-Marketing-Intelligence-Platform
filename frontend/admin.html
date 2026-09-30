@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Admin Panel · AI Marketing Intelligence Platform</title>
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <div class="sidebar" id="sidebarMount"></div>
+
+    <div class="main">
+      <div class="page-header">
+        <div>
+          <h1>Admin Panel</h1>
+          <p>Manage users and roles. Admins see every campaign across the platform.</p>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0;overflow-x:auto;">
+        <table>
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Joined</th><th></th></tr></thead>
+          <tbody id="userRows"></tbody>
+        </table>
+        <div id="emptyState" class="empty-state" style="display:none;">No users found.</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/shell.js"></script>
+  <script>
+    renderShell('admin');
+    const me = getUser();
+
+    async function loadUsers() {
+      try {
+        const users = await api('/users');
+        const rows = document.getElementById('userRows');
+        const empty = document.getElementById('emptyState');
+
+        if (!users.length) { empty.style.display = 'block'; rows.innerHTML = ''; return; }
+        empty.style.display = 'none';
+
+        rows.innerHTML = users.map(u => `
+          <tr>
+            <td>${u.name}</td>
+            <td>${u.email}</td>
+            <td><span class="badge ${u.role === 'admin' ? 'badge-active' : 'badge-draft'}">${u.role}</span></td>
+            <td>${new Date(u.createdAt).toLocaleDateString()}</td>
+            <td>
+              <div class="row-actions">
+                <button class="icon-btn" onclick="toggleRole('${u._id}', '${u.role}')" ${u._id === me._id ? 'disabled' : ''}>
+                  Make ${u.role === 'admin' ? 'Manager' : 'Admin'}
+                </button>
+                <button class="icon-btn" onclick="removeUser('${u._id}')" ${u._id === me._id ? 'disabled' : ''}>Delete</button>
+              </div>
+            </td>
+          </tr>
+        `).join('');
+      } catch (err) {
+        toast(err.message, true);
+      }
+    }
+
+    async function toggleRole(id, currentRole) {
+      const newRole = currentRole === 'admin' ? 'manager' : 'admin';
+      try {
+        await api(`/users/${id}/role`, { method: 'PUT', body: { role: newRole } });
+        toast('Role updated');
+        loadUsers();
+      } catch (err) { toast(err.message, true); }
+    }
+
+    async function removeUser(id) {
+      if (!confirm('Delete this user and all their campaigns?')) return;
+      try {
+        await api(`/users/${id}`, { method: 'DELETE' });
+        toast('User deleted');
+        loadUsers();
+      } catch (err) { toast(err.message, true); }
+    }
+
+    loadUsers();
+  </script>
+</body>
+</html>
